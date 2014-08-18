@@ -56,14 +56,24 @@ namespace yidpp {
 			}
 
 			//take the derivative with respect to a terminal pretty much the main algorithm
-			std::shared_ptr<Parser<T,A>> derive (T t) {
+			std::shared_ptr<Parser<T,A>> derive (T t, std::set<void*> nulls = std::set<void*>()) {
+				
 				//should do an is empty check here 
 				if (cache.count(t)) {
 					return cache.find(t)->second; //if seen before return previous result
 				} else {
-					std::shared_ptr<Parser<T,A>> temp_derive = internalDerive(t);  //new get the internal derivative
-					cache.insert(std::make_pair(t,temp_derive));
-					return temp_derive;
+					if(nulls.count(this)) {
+#warning insert a laziness wrapper here which wraps the this pointer but acts as though it is the derivative
+						nulls.insert(this);
+						std::shared_ptr<Parser<T,A>> temp_derive = internalDerive(t,nulls);  //new get the internal derivative
+						cache.insert(std::make_pair(t,temp_derive));
+						return temp_derive;
+					} else {
+						nulls.insert(this);
+						std::shared_ptr<Parser<T,A>> temp_derive = internalDerive(t,nulls);  //new get the internal derivative
+						cache.insert(std::make_pair(t,temp_derive));
+						return temp_derive;
+					}
 				}
 			}
 
@@ -112,7 +122,7 @@ namespace yidpp {
 			bool initialized;
 			
 			//virtual method for popping the derivative
-			virtual std::shared_ptr<Parser<T,A>> internalDerive (T t) = 0;
+			virtual std::shared_ptr<Parser<T,A>> internalDerive (T t,std::set<void*> nulls) = 0;
 
 			//setter for parse forest and checks if changed
 			bool parseNullSet(std::set<A> set) {
@@ -188,7 +198,7 @@ class Emp : public Parser<T,A> {
 		} //you get nothing out of parsing it
   
   protected:
-		std::shared_ptr<Parser<T,A>> internalDerive (T t) override {
+		std::shared_ptr<Parser<T,A>> internalDerive (T t, std::set<void*> nulls) override {
 			return Parser<T,A>::shared_from_this();
 		}//derivative of the empty set is the empty set
 };
@@ -217,7 +227,7 @@ class Eps : public Parser<T,A> {
 	protected:
 		//if you take the derivative of it you get the null set
 		//which is no parser at all
-		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
+		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t,std::set<void*> nulls) override {
 			return std::make_shared<Emp<T,A>>();
 		}
 
@@ -255,7 +265,7 @@ class EqT : public Parser<T,T> {
 			}
   
   protected:
-		virtual std::shared_ptr<Parser<T,T>> internalDerive(T t_) override {
+		virtual std::shared_ptr<Parser<T,T>> internalDerive(T t_, std::set<void*> nulls) override {
 			if(t == t_) {
 				//derivative of the single terminal is the null reduction parser
 				//formed with t as the construction option
@@ -282,19 +292,19 @@ class Alt : public Parser<T,A> {
 
 
 	protected:
-		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
+		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t, std::set<void*> nulls) override {
 			//Quick optimization
 			//if either choice is the empty parser
 			//then the result is only the opposite derivative
 			if(choice1->isEmpty()) 
-				return choice2->derive(t);
+				return choice2->derive(t,nulls);
 
 			if(choice2->isEmpty())
-				return choice1->derive(t);
+				return choice1->derive(t,nulls);
 
 			//if both have stuff then apply alternation rule, derivative of alternation is
 			//alternation of derivative (it commutes)
-			return std::make_shared<Alt<T,A>>(choice1->derive(t), choice2->derive(t));
+			return std::make_shared<Alt<T,A>>(choice1->derive(t,nulls), choice2->derive(t,nulls));
 		}
 
 	protected:
@@ -326,11 +336,11 @@ class Con : public Parser<T,std::pair<A,B>> {
 
 
 	protected:
-		virtual std::shared_ptr<Parser<T,std::pair<A,B>>> internalDerive(T t) override {
+		virtual std::shared_ptr<Parser<T,std::pair<A,B>>> internalDerive(T t, std::set<void*> nulls) override {
 
 			//Concatenation has some funny rules and is also a big target of compaction
 			//so apply it here
-			std::shared_ptr<Parser<T,A>> leftDerive = first->derive(t);
+			std::shared_ptr<Parser<T,A>> leftDerive = first->derive(t,nulls);
 			std::shared_ptr<Parser<T,std::pair<A,B>>> primaryRet = std::make_shared<Emp<T,std::pair<A,B>>>();
 			if(!leftDerive->isEmpty()) { 
 				//only if the first expressions derivative is non-empty do we care about the first
@@ -344,7 +354,7 @@ class Con : public Parser<T,std::pair<A,B>> {
 				//term
 				std::shared_ptr<Parser<T,A>> nullability = std::make_shared<Eps<T,A>>(first->parseNull());
 				//we also want the second derivate to concat with the reduction parser
-				std::shared_ptr<Parser<T,B>> rightDerive = second->derive(t);
+				std::shared_ptr<Parser<T,B>> rightDerive = second->derive(t,nulls);
 				if(leftDerive->isEmpty()) {
 					//if the left is empty then only worry about nullability portion of the concat
 					if(rightDerive->isEmpty()) {
@@ -397,9 +407,9 @@ class Red : public Parser<T,B> {
 		Red(std::shared_ptr<Parser<T,A>> parser, std::function<B(A)> redfunc): localParser(parser), reductionFunction(redfunc) {};	
 
 	protected:
-		virtual std::shared_ptr<Parser<T,B>> internalDerive(T t) override {
+		virtual std::shared_ptr<Parser<T,B>> internalDerive(T t,std::set<void*> nulls) override {
 			
-			auto temp = localParser->derive(t);
+			auto temp = localParser->derive(t,nulls);
 			//If the derivitive of the internal parser which you are reducing is the Null Parser
 			//Then the result is simply the Null Parser of the correct type
 			if(temp->isEmpty()) {
@@ -407,7 +417,7 @@ class Red : public Parser<T,B> {
 			}
 			
 			//derivative of the reduction is the reduction of the derivative
-			return std::make_shared<Red<T,A,B>>(localParser->derive(t),reductionFunction);
+			return std::make_shared<Red<T,A,B>>(temp,reductionFunction);
 		}
 
 	public:
@@ -469,8 +479,8 @@ class Rep: public Parser<T,std::vector<A>> {
 					return retval;
 	}
 	
-	virtual std::shared_ptr<Parser<T,std::vector<A>>> internalDerive(T t) override {
-			auto localDerive = std::make_shared<Con<T,A,std::vector<A>>>(internal->derive(t), Parser<T,std::vector<A>>::shared_from_this());
+	virtual std::shared_ptr<Parser<T,std::vector<A>>> internalDerive(T t, std::set<void*> nulls) override {
+			auto localDerive = std::make_shared<Con<T,A,std::vector<A>>>(internal->derive(t,nulls), Parser<T,std::vector<A>>::shared_from_this());
 			return std::make_shared<Red<T,std::pair<A,std::vector<A>>,std::vector<A>>>(localDerive,Rep<T,A>::reductionOperation);
 		}
 
