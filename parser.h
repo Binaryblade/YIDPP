@@ -391,8 +391,8 @@ class Con : public Parser<T,std::pair<A,B>> {
 template<class T, class A, class B>
 class Red : public Parser<T,B> {
   private:
-		std::function<B(A)> reductionFunction;
 		std::shared_ptr<Parser<T,A>> localParser;
+		std::function<B(A)> reductionFunction;
 	public:
 		Red(std::shared_ptr<Parser<T,A>> parser, std::function<B(A)> redfunc): localParser(parser), reductionFunction(redfunc) {};	
 

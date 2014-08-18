@@ -1,19 +1,25 @@
-LDFLAGS := --std=gnu++0x -g $(LDFLAGS)
-CXXFLAGS := --std=gnu++0x -g  $(CXXFLAGS)
+SOURCES := $(wildcard *.cpp)
+OBJECTS := $(patsubst %.cpp,%.o,$(SOURCES))
+DEPENDS := $(patsubst %.cpp,%.d,$(SOURCES))
 
-all: parsertest
+override CXXFLAGS := -g -std=c++11 -Wall $(CXXFLAGS)
+override LDFLAGS := -std=c++11 $(LDFLAGS)
+override LIBS := $(LIBS)
 
-parsertest: main.o special_parser.o
-	g++ $(LDFLAGS) $(LIBS) $+ -o $@
+parsertest: $(OBJECTS)
+	$(CXX) $(LDFLAGS) -o $@ $+ $(LIBS)
 
-main.o: main.cpp special_parser.h
-	g++ $(CXXFLAGS) -c $< -o $@
+%.o:%.cpp
+	$(CXX) $(CXXFLAGS) -o $@ -c $<
 
-special_parser.h: parser.h
+%.d:%.cpp
+	$(CXX) $(CXXFLAGS) -o $@ -MM $^
 
-special_parser.o: special_parser.cpp special_parser.h
-	g++ $(CXXFLAGS) -c $< -o $@
-
-.PHONY clean:
-	rm -fr main.o
-	rm -fr parsertest
+.PHONY: clean
+clean:
+	$(RM) *.d
+	$(RM) *.o 
+	$(RM) parsertest
+ifneq ($(MAKECMDGOALS),clean)
+include $(DEPENDS) 
+endif

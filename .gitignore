@@ -1,3 +1,9 @@
+# Editing Objects
+*.swp
+
+# Compilation Objects
+*.d
+
 # Compiled Object files
 *.slo
 *.lo
@@ -19,3 +25,4 @@
 *.exe
 *.out
 *.app
+parsertest
