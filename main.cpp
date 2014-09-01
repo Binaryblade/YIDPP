@@ -10,6 +10,7 @@ int main(void) {
 	for(size_t i=0;i<10;++i) {
 		if(!recursive->isNullable()) {
 		 std::cout << "Result is Not Nullable" << std::endl;
+		 std::cout << "At index: " << i << std::endl;
 		 break;
 		}
 		recursive = recursive->derive('x');

@@ -15,7 +15,7 @@ std::string StringParser::reductionFunc(const std::pair<char,std::string>& pairi
 	return pairing.first+pairing.second;
 }
 
-std::shared_ptr<yidpp::Parser<char,std::string>> StringParser::internalDerive(char t, std::set<void*> nulls) {
+std::shared_ptr<yidpp::Parser<char,std::string>> StringParser::internalDerive(char t) {
 			if(internalString.size() == 0) {
 				return std::make_shared<yidpp::Emp<char,std::string>>();
 			} else {

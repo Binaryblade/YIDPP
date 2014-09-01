@@ -9,7 +9,7 @@ class StringParser : public yidpp::Parser<char,std::string> {
 		StringParser(const std::string &parseString);
 		static std::string reductionFunc(const std::pair<char,std::string>& pairing);
 	protected:
-		virtual std::shared_ptr<Parser<char,std::string>> internalDerive(char t, std::set<void*> nulls) override;
+		virtual std::shared_ptr<Parser<char,std::string>> internalDerive(char t) override;
 	private:
 		std::string internalString;
 };
