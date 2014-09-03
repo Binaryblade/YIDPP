@@ -7,6 +7,7 @@ int main(void) {
 	std::shared_ptr<Parser<char,char>> singleParser = std::make_shared<EqT<char>>('x');
 	std::shared_ptr<Parser<char,std::vector<char>>> kleene = std::make_shared<Rep<char,char>>(singleParser);
 	std::shared_ptr<Parser<char,std::vector<char>>> recursive = kleene;
+	std::cout << recursive->getDescription() << std::endl;
 	for(size_t i=0;i<10;++i) {
 		if(!recursive->isNullable()) {
 		 std::cout << "Result is Not Nullable" << std::endl;

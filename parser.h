@@ -6,6 +6,8 @@
 #include <set>
 #include <unordered_map>
 #include <iostream>
+#include <sstream>
+#include <iomanip>
 
 namespace yidpp {
 		template<class T,class A>
@@ -109,6 +111,43 @@ namespace yidpp {
 				allUpdate(change);
 			};
 
+			virtual std::string getDescription() {
+				std::string returntemp;
+				returntemp += "digraph parseTree {\n";
+				std::set<void*> emptySet;
+				returntemp += treeRecurse(emptySet);
+				returntemp += "}\n";
+				return returntemp;
+			}
+			
+			virtual std::string getNodeName() {
+				std::stringstream ss;
+				ss << std::hex << "\"" << static_cast<void*>(this) << "\"";
+				return ss.str();
+			}
+
+			virtual std::string getNodeLabel() {
+				 std::string nodelabel;
+				 nodelabel = this->getNodeName() +" [label="+this->getLabel()+":"+this->getNodeName()+"];\n";
+				return std::move(nodelabel);
+			}
+
+			virtual std::string treeRecurse(std::set<void*>& valueSet) {
+				if(!valueSet.count(this)) {
+					valueSet.insert(this);
+					return this->getNodeLabel()+";\n"+getChildren(valueSet);
+				}
+				return "";
+			}
+
+			virtual std::string getChildren(std::set<void*>& valueSet) {
+				return "";
+			}
+
+			virtual std::string getLabel() {
+				return "UNKNOWN";
+			}
+
 		protected:
 			//has the fixed point been done
 			bool initialized;
@@ -185,7 +224,19 @@ class DFut : public Parser<T,A> {
 		virtual std::set<std::pair<A,std::vector<T>>> parse(const std::vector<T>& input) override {
 			return to_derive->derive(terminal)->parse(input);
 		}
+
+		std::string getChildren(std::set<void*>& valueSet) override {
+			std::string childrenString;
+			childrenString = Parser<T,A>::getNodeLabel() + "->" + to_derive->derive(terminal)->getNodeName() + ";\n";
+			childrenString += to_derive->derive(terminal)->treeRecurse(valueSet);
+			return childrenString;
+		}
+
+		std::string getLabel() override {
+			return "DerivativeFuture";
+		}
 	protected:
+
 		std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
 			return std::make_shared<DFut<T,A>>(to_derive->derive(terminal),t);
 		}
@@ -219,7 +270,11 @@ class Emp : public Parser<T,A> {
 			return std::set<std::pair<A,std::vector<T>>>();
 		} //you get nothing out of parsing it
   
+		std::string getLabel() override {
+			return "Empty_Set";
+		}
   protected:
+		
 		std::shared_ptr<Parser<T,A>> internalDerive (T t) override {
 			return Parser<T,A>::shared_from_this();
 		}//derivative of the empty set is the empty set
@@ -246,7 +301,11 @@ class Eps : public Parser<T,A> {
 		}
 
 
+		std::string getLabel() override {
+			return "Empty_String";
+		}
 	protected:
+
 		//if you take the derivative of it you get the null set
 		//which is no parser at all
 		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
@@ -286,7 +345,11 @@ class EqT : public Parser<T,T> {
 				return retval;
 			}
   
+		std::string getLabel() override {
+			return "TerminalParser_"+t;
+		}
   protected:
+
 		virtual std::shared_ptr<Parser<T,T>> internalDerive(T t_) override {
 			if(t == t_) {
 				//derivative of the single terminal is the null reduction parser
@@ -313,7 +376,20 @@ class Alt : public Parser<T,A> {
 		Alt(std::shared_ptr<Parser<T,A>> choice1, std::shared_ptr<Parser<T,A>> choice2) : choice1(choice1), choice2(choice2) { }
 
 
+		std::string getChildren(std::set<void*>& valueSet) override {
+			std::string childrenString;
+			childrenString = Parser<T,A>::getNodeName() + "->" + choice1->getNodeName() + ";\n";
+			childrenString += Parser<T,A>::getNodeName() + "->" + choice2->getNodeName() + ";\n";
+			childrenString += choice1->treeRecurse(valueSet);
+			childrenString += choice2->treeRecurse(valueSet);
+			return childrenString;
+		}
+
+		std::string getLabel() override {
+			return "Union";
+		}
 	protected:
+
 		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
 			//Quick optimization
 			//if either choice is the empty parser
@@ -357,6 +433,18 @@ class Con : public Parser<T,std::pair<A,B>> {
 		Con(std::shared_ptr<Parser<T,A>> first, std::shared_ptr<Parser<T,B>> second) : first(first), second(second) {};
 
 
+		std::string getChildren(std::set<void*>& valueSet) override {
+			std::string childrenString;
+			childrenString = this->getNodeName() + "->" + first->getNodeName() + ";\n";
+			childrenString = this->getNodeName() + "->" + second->getNodeName() + ";\n";
+			childrenString += first->treeRecurse(valueSet);
+			childrenString += second->treeRecurse(valueSet);
+			return childrenString;
+		}
+
+		std::string getLabel() override {
+			return "Concatenation";
+		}
 	protected:
 		virtual std::shared_ptr<Parser<T,std::pair<A,B>>> internalDerive(T t) override {
 
@@ -428,6 +516,17 @@ class Red : public Parser<T,B> {
 	public:
 		Red(std::shared_ptr<Parser<T,A>> parser, std::function<B(A)> redfunc): localParser(parser), reductionFunction(redfunc) {};	
 
+		std::string getChildren(std::set<void*>& valueSet) override {
+			std::string childrenString;
+			childrenString = Parser<T,B>::getNodeName() + "->" + localParser->getNodeName() + ";\n";
+			childrenString += localParser->treeRecurse(valueSet);
+			return childrenString;
+		}
+
+		std::string getLabel() override {
+			return "ReductionOperation";
+		}
+	
 	protected:
 		virtual std::shared_ptr<Parser<T,B>> internalDerive(T t) override {
 			
@@ -493,7 +592,19 @@ class Rep: public Parser<T,std::vector<A>> {
 			Parser<T,std::vector<A>>::parseNullSet(retset);
 		}
   
+		std::string getChildren(std::set<void*>& valueSet) override {
+			std::string childrenString;
+			childrenString = this->getNodeName() + "->" + internal->getNodeName() + ";\n";
+			childrenString += internal->treeRecurse(valueSet);
+			return childrenString;
+		}
+
+		std::string getLabel() override {
+			return "Kleene";
+		}
+	
 	protected:
+	
 	static std::vector<A> reductionOperation(std::pair<A,std::vector<A>> input) {
 					std::vector<A> retval; 
 					retval.push_back(input.first);
