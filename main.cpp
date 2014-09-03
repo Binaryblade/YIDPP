@@ -4,27 +4,32 @@
 using namespace yidpp;
 
 int main(void) {
-	std::shared_ptr<Parser<char,char>> singleParser = std::make_shared<EqT<char>>('x');
-	std::shared_ptr<Parser<char,std::vector<char>>> kleene = std::make_shared<Rep<char,char>>(singleParser);
-	std::shared_ptr<Parser<char,std::vector<char>>> recursive = kleene;
-	std::cout << recursive->getDescription() << std::endl;
-	for(size_t i=0;i<10;++i) {
-		if(!recursive->isNullable()) {
-		 std::cout << "Result is Not Nullable" << std::endl;
-		 std::cout << "At index: " << i << std::endl;
-		 break;
-		}
-		recursive = recursive->derive('x');
-	}
-	std::set<std::vector<char>> result = recursive->parseNull();
-	std::cout << "Set Size: " << result.size() << std::endl;
-	for(auto j=result.begin();j!=result.end();++j) {
-			std::cout << "Result of Length: " << j->size() << std::endl;
-			std::cout << "\"";
-			for(auto k=j->begin();k!=j->end();++k) {
-				std::cout << *k;
-			}
-			std::cout << "\"" << std::endl;
-	}
+	class Tree {
+		public:
+			Tree() : Left(nullptr), Right(nullptr) {};
+			Tree* Left;
+			Tree* Right;
+	};
+
+	std::shared_ptr<Parser<char,char>> OpenBrace = std::make_shared<EqT<char>>('(');
+	std::shared_ptr<Parser<char,char>> CloseBrace = std::make_shared<EqT<char>>(')');
+	std::set<Tree*> blankSet;
+	blankSet.insert(nullptr);
+	std::shared_ptr<Parser<char,Tree*>> EmptyTree = std::make_shared<Eps<char,Tree*>>(blankSet);
+	std::shared_ptr<RecursiveParser<char,Tree*>> language = std::make_shared<RecursiveParser<char,Tree*>>();
+	
+	std::shared_ptr<Parser<char,std::pair<char,Tree*>>> LeftPair = std::make_shared<Con<char,char,Tree*>>(OpenBrace,language);
+	std::shared_ptr<Parser<char,std::pair<char,Tree*>>> RightPair = std::make_shared<Con<char,char,Tree*>>(CloseBrace,language);
+
+	std::shared_ptr<Parser<char,Tree*>> LeftReduce = std::make_shared<Red<char,std::pair<char,Tree*>,Tree*>>(LeftPair, [](std::pair<char,Tree*> in)->Tree* {return in.second;});
+	std::shared_ptr<Parser<char,Tree*>> RightReduce = std::make_shared<Red<char,std::pair<char,Tree*>,Tree*>>(RightPair, [](std::pair<char,Tree*> in)->Tree* {return in.second;});
+
+	std::shared_ptr<Parser<char,std::pair<Tree*,Tree*>>> parsePair = std::make_shared<Con<char,Tree*,Tree*>>(LeftReduce,RightReduce);
+	std::shared_ptr<Parser<char,Tree*>> ReducedPair = std::make_shared<Red<char,std::pair<Tree*,Tree*>,Tree*>>(parsePair,[](std::pair<Tree*,Tree*> input) -> Tree* {Tree* temp = new Tree(); temp->Left = input.first; temp->Right = input.second; return temp;});
+	language->SetRecurse(std::make_shared<Alt<char,Tree*>>(ReducedPair,EmptyTree));
+
+	std::vector<char> inputStream;
+	std::set<Tree*> result = language->parseFull(inputStream);
+	std::cout << result.size() << std::endl;
 	return 0;
 }

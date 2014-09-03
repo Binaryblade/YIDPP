@@ -254,6 +254,47 @@ class DFut : public Parser<T,A> {
 };
 
 
+template<class T,class A>
+	class RecursiveParser : public Parser<T,A> {
+			std::shared_ptr<Parser<T,A>> to_derive;
+
+	public:
+		RecursiveParser(std::shared_ptr<Parser<T,A>> input) : to_derive(input) {};
+		RecursiveParser() {};
+
+		void SetRecurse(std::shared_ptr<Parser<T,A>> input) { to_derive = input; }
+	
+		virtual std::set<std::pair<A,std::vector<T>>> parse(const std::vector<T>& input) override {
+			return to_derive->parse(input);
+		}
+
+		std::string getChildren(std::set<void*>& valueSet) override {
+			std::string childrenString;
+			childrenString = Parser<T,A>::getNodeLabel() + "->" + to_derive->getNodeName() + ";\n";
+			childrenString += to_derive->treeRecurse(valueSet);
+			return childrenString;
+		}
+
+		std::string getLabel() override {
+			return "RecursiveParser";
+		}
+	protected:
+
+		std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
+			return std::make_shared<DFut<T,A>>(to_derive,t);
+		}
+
+		virtual void oneShotUpdate(ChangeCell &change) override {
+      to_derive->updateChildBasedAttributes(change);
+		}
+
+		virtual void allUpdate(ChangeCell& change) override {
+			change.orWith (Parser<T,A>::parseNullSet(to_derive->parseNull()));
+			change.orWith (Parser<T,A>::isEmptySet(to_derive->isEmpty()));
+			change.orWith (Parser<T,A>::isNullableSet(to_derive->isNullable()));
+		}
+	};
+
 //class for the empty set
 template<class T, class A>
 class Emp : public Parser<T,A> {
