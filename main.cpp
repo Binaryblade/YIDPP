@@ -52,18 +52,15 @@ int main(void) {
 	language->SetRecurse(std::make_shared<Alt<char,Tree*>>(ReducedPair,EmptyTree));
 
 	std::shared_ptr<Parser<char,Tree*>> torecurse = language;
-	for(int i=0; i< 10; i++) {
+	for(int i=0; i< 25; i++) {
+		torecurse = torecurse->derive('(');
 		std::stringstream s;	
 		s << "numderives_"<<i;
 		std::cout << getGraph<char,Tree*>(s.str(),torecurse) << std::endl;
-		torecurse = torecurse->derive('(');
 	}
 	
-	for(int i=0; i< 10; i++) {
-		std::stringstream s;	
-		s << "numderives_"<<(i+10);
-		std::cout << getGraph<char,Tree*>(s.str(),torecurse) << std::endl;
+
 		torecurse = torecurse->derive(')');
-	}
+		std::cout << getGraph<char,Tree*>("FirstClosure",torecurse) << std::endl;
 	return 0;
 }

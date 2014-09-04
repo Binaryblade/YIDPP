@@ -7,7 +7,6 @@
 #include <unordered_map>
 #include <iostream>
 #include <sstream>
-#include <iomanip>
 
 namespace yidpp {
 		template<class T,class A>
