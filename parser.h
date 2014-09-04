@@ -26,6 +26,14 @@ namespace yidpp {
 				}
 		};
 
+		struct Node {
+			void* item;
+			std::string label;
+			std::vector<void*> children;
+		};
+
+		typedef std::unordered_map<void*,Node> Graph;
+
 	//The abstract base class for all parsers
 	template<class T, class A>
 	class Parser : public std::enable_shared_from_this<Parser<T,A>> {
@@ -105,44 +113,28 @@ namespace yidpp {
 				void* localPtr = Parser<T,A>::shared_from_this().get();
 				if(!change.seen.count(localPtr)) {
 					change.seen.insert(localPtr);
-					oneShotUpdate(change);
 					initialized=true;
+					oneShotUpdate(change);
 				}
 				allUpdate(change);
 			};
 
-			virtual std::string getDescription() {
-				std::string returntemp;
-				returntemp += "digraph parseTree {\n";
-				std::set<void*> emptySet;
-				returntemp += treeRecurse(emptySet);
-				returntemp += "}\n";
-				return returntemp;
-			}
-			
-			virtual std::string getNodeName() {
-				std::stringstream ss;
-				ss << std::hex << "\"" << static_cast<void*>(this) << "\"";
-				return ss.str();
-			}
-
-			virtual std::string getNodeLabel() {
-				 std::string nodelabel;
-				 nodelabel = this->getNodeName() +" [label="+this->getLabel()+":"+this->getNodeName()+"];\n";
-				return std::move(nodelabel);
-			}
-
-			virtual std::string treeRecurse(std::set<void*>& valueSet) {
+			virtual void treeRecurse(Graph& valueSet) {
 				if(!valueSet.count(this)) {
-					valueSet.insert(this);
-					return this->getNodeLabel()+";\n"+getChildren(valueSet);
+					Node temp;
+					temp.label = this->getLabel();
+					temp.children = this->getChildren();
+					temp.item = this;
+					valueSet.insert(std::make_pair(static_cast<void*>(this),temp));
+					this->recurseChildren(valueSet);
 				}
-				return "";
 			}
 
-			virtual std::string getChildren(std::set<void*>& valueSet) {
-				return "";
+			virtual std::vector<void*> getChildren() {
+				return std::vector<void*>();
 			}
+
+			virtual void recurseChildren(Graph& valueSet) {};
 
 			virtual std::string getLabel() {
 				return "UNKNOWN";
@@ -225,20 +217,26 @@ class DFut : public Parser<T,A> {
 			return to_derive->derive(terminal)->parse(input);
 		}
 
-		std::string getChildren(std::set<void*>& valueSet) override {
-			std::string childrenString;
-			childrenString = Parser<T,A>::getNodeLabel() + "->" + to_derive->derive(terminal)->getNodeName() + ";\n";
-			childrenString += to_derive->derive(terminal)->treeRecurse(valueSet);
-			return childrenString;
-		}
 
-		std::string getLabel() override {
-			return "DerivativeFuture";
-		}
+
+			virtual std::vector<void*> getChildren() {
+				std::vector<void*> temp;
+				temp.push_back(to_derive.get());
+				return temp;
+			}
+
+			virtual void recurseChildren(Graph& valueSet) {
+				to_derive->treeRecurse(valueSet);
+			};
+
+			virtual std::string getLabel() {
+				return "DerivativeFuture";
+			}
+
 	protected:
 
 		std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
-			return std::make_shared<DFut<T,A>>(to_derive->derive(terminal),t);
+			return to_derive->derive(terminal)->derive(t);
 		}
 
 		virtual void oneShotUpdate(ChangeCell &change) override {
@@ -256,42 +254,46 @@ class DFut : public Parser<T,A> {
 
 template<class T,class A>
 	class RecursiveParser : public Parser<T,A> {
-			std::shared_ptr<Parser<T,A>> to_derive;
+			std::shared_ptr<Parser<T,A>> recursive;
 
 	public:
-		RecursiveParser(std::shared_ptr<Parser<T,A>> input) : to_derive(input) {};
+		RecursiveParser(std::shared_ptr<Parser<T,A>> input) : recursive(input) {};
 		RecursiveParser() {};
 
-		void SetRecurse(std::shared_ptr<Parser<T,A>> input) { to_derive = input; }
+		void SetRecurse(std::shared_ptr<Parser<T,A>> input) { recursive = input; }
 	
 		virtual std::set<std::pair<A,std::vector<T>>> parse(const std::vector<T>& input) override {
-			return to_derive->parse(input);
+			return recursive->parse(input);
 		}
+			
+			virtual std::vector<void*> getChildren() {
+				std::vector<void*> temp;
+				temp.push_back(recursive.get());
+				return temp;
+			}
 
-		std::string getChildren(std::set<void*>& valueSet) override {
-			std::string childrenString;
-			childrenString = Parser<T,A>::getNodeLabel() + "->" + to_derive->getNodeName() + ";\n";
-			childrenString += to_derive->treeRecurse(valueSet);
-			return childrenString;
-		}
+			virtual void recurseChildren(Graph& valueSet) {
+				recursive->treeRecurse(valueSet);
+			};
 
-		std::string getLabel() override {
-			return "RecursiveParser";
-		}
+			virtual std::string getLabel() {
+				return "RecursiveParser";
+			}
+
 	protected:
 
 		std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
-			return std::make_shared<DFut<T,A>>(to_derive,t);
+			return recursive->derive(t);
 		}
 
 		virtual void oneShotUpdate(ChangeCell &change) override {
-      to_derive->updateChildBasedAttributes(change);
+      recursive->updateChildBasedAttributes(change);
 		}
 
 		virtual void allUpdate(ChangeCell& change) override {
-			change.orWith (Parser<T,A>::parseNullSet(to_derive->parseNull()));
-			change.orWith (Parser<T,A>::isEmptySet(to_derive->isEmpty()));
-			change.orWith (Parser<T,A>::isNullableSet(to_derive->isNullable()));
+			change.orWith (Parser<T,A>::parseNullSet(recursive->parseNull()));
+			change.orWith (Parser<T,A>::isEmptySet(recursive->isEmpty()));
+			change.orWith (Parser<T,A>::isNullableSet(recursive->isNullable()));
 		}
 	};
 
@@ -387,7 +389,7 @@ class EqT : public Parser<T,T> {
 			}
   
 		std::string getLabel() override {
-			return "TerminalParser_"+t;
+			return "TerminalParser";
 		}
   protected:
 
@@ -416,15 +418,17 @@ class Alt : public Parser<T,A> {
 	public:
 		Alt(std::shared_ptr<Parser<T,A>> choice1, std::shared_ptr<Parser<T,A>> choice2) : choice1(choice1), choice2(choice2) { }
 
-
-		std::string getChildren(std::set<void*>& valueSet) override {
-			std::string childrenString;
-			childrenString = Parser<T,A>::getNodeName() + "->" + choice1->getNodeName() + ";\n";
-			childrenString += Parser<T,A>::getNodeName() + "->" + choice2->getNodeName() + ";\n";
-			childrenString += choice1->treeRecurse(valueSet);
-			childrenString += choice2->treeRecurse(valueSet);
-			return childrenString;
+		virtual std::vector<void*> getChildren() {
+			std::vector<void*> temp;
+			temp.push_back(choice1.get());
+			temp.push_back(choice2.get());
+			return temp;
 		}
+
+		virtual void recurseChildren(Graph& valueSet) {
+			choice1->treeRecurse(valueSet);
+			choice2->treeRecurse(valueSet);
+		};
 
 		std::string getLabel() override {
 			return "Union";
@@ -436,14 +440,14 @@ class Alt : public Parser<T,A> {
 			//if either choice is the empty parser
 			//then the result is only the opposite derivative
 			if(choice1->isEmpty()) 
-				return std::make_shared<DFut<T,A>>(choice2,t);
+				return choice2->derive(t);
 
 			if(choice2->isEmpty())
-				return std::make_shared<DFut<T,A>>(choice1,t);
+				return choice1->derive(t);
 
 			//if both have stuff then apply alternation rule, derivative of alternation is
 			//alternation of derivative (it commutes)
-			return std::make_shared<Alt<T,A>>(std::make_shared<DFut<T,A>>(choice1,t), std::make_shared<DFut<T,A>>(choice2,t));
+			return std::make_shared<Alt<T,A>>(choice1->derive(t), choice2->derive(t));
 		}
 
 	protected:
@@ -473,15 +477,17 @@ class Con : public Parser<T,std::pair<A,B>> {
 	public:
 		Con(std::shared_ptr<Parser<T,A>> first, std::shared_ptr<Parser<T,B>> second) : first(first), second(second) {};
 
-
-		std::string getChildren(std::set<void*>& valueSet) override {
-			std::string childrenString;
-			childrenString = this->getNodeName() + "->" + first->getNodeName() + ";\n";
-			childrenString = this->getNodeName() + "->" + second->getNodeName() + ";\n";
-			childrenString += first->treeRecurse(valueSet);
-			childrenString += second->treeRecurse(valueSet);
-			return childrenString;
+		virtual std::vector<void*> getChildren() {
+			std::vector<void*> temp;
+			temp.push_back(first.get());
+			temp.push_back(second.get());
+			return temp;
 		}
+
+		virtual void recurseChildren(Graph& valueSet) {
+			first->treeRecurse(valueSet);
+			second->treeRecurse(valueSet);
+		};
 
 		std::string getLabel() override {
 			return "Concatenation";
@@ -491,7 +497,7 @@ class Con : public Parser<T,std::pair<A,B>> {
 
 			//Concatenation has some funny rules and is also a big target of compaction
 			//so apply it here
-			std::shared_ptr<Parser<T,A>> leftDerive = std::make_shared<DFut<T,A>>(first,t);
+			std::shared_ptr<Parser<T,A>> leftDerive = first->derive(t);
 			std::shared_ptr<Parser<T,std::pair<A,B>>> primaryRet = std::make_shared<Emp<T,std::pair<A,B>>>();
 			if(!leftDerive->isEmpty()) { 
 				//only if the first expressions derivative is non-empty do we care about the first
@@ -505,7 +511,7 @@ class Con : public Parser<T,std::pair<A,B>> {
 				//term
 				std::shared_ptr<Parser<T,A>> nullability = std::make_shared<Eps<T,A>>(first->parseNull());
 				//we also want the second derivate to concat with the reduction parser
-				std::shared_ptr<Parser<T,B>> rightDerive = std::make_shared<DFut<T,B>>(second,t);
+				std::shared_ptr<Parser<T,B>> rightDerive = second->derive(t);
 				if(leftDerive->isEmpty()) {
 					//if the left is empty then only worry about nullability portion of the concat
 					if(rightDerive->isEmpty()) {
@@ -556,13 +562,16 @@ class Red : public Parser<T,B> {
 		std::function<B(A)> reductionFunction;
 	public:
 		Red(std::shared_ptr<Parser<T,A>> parser, std::function<B(A)> redfunc): localParser(parser), reductionFunction(redfunc) {};	
-
-		std::string getChildren(std::set<void*>& valueSet) override {
-			std::string childrenString;
-			childrenString = Parser<T,B>::getNodeName() + "->" + localParser->getNodeName() + ";\n";
-			childrenString += localParser->treeRecurse(valueSet);
-			return childrenString;
+		
+		virtual std::vector<void*> getChildren() {
+			std::vector<void*> temp;
+			temp.push_back(localParser.get());
+			return temp;
 		}
+
+		virtual void recurseChildren(Graph& valueSet) {
+			localParser->treeRecurse(valueSet);
+		};
 
 		std::string getLabel() override {
 			return "ReductionOperation";
@@ -632,13 +641,16 @@ class Rep: public Parser<T,std::vector<A>> {
 			retset.insert(std::vector<A>());
 			Parser<T,std::vector<A>>::parseNullSet(retset);
 		}
-  
-		std::string getChildren(std::set<void*>& valueSet) override {
-			std::string childrenString;
-			childrenString = this->getNodeName() + "->" + internal->getNodeName() + ";\n";
-			childrenString += internal->treeRecurse(valueSet);
-			return childrenString;
+		
+		virtual std::vector<void*> getChildren() {
+			std::vector<void*> temp;
+			temp.push_back(internal);
+			return temp;
 		}
+
+		virtual void recurseChildren(Graph& valueSet) {
+			internal->treeRecurse(valueSet);
+		};
 
 		std::string getLabel() override {
 			return "Kleene";
@@ -654,7 +666,7 @@ class Rep: public Parser<T,std::vector<A>> {
 	}
 	
 	virtual std::shared_ptr<Parser<T,std::vector<A>>> internalDerive(T t) override {
-			auto localDerive = std::make_shared<Con<T,A,std::vector<A>>>(std::make_shared<DFut<T,A>>(internal,t), Parser<T,std::vector<A>>::shared_from_this());
+			auto localDerive = std::make_shared<Con<T,A,std::vector<A>>>(internal->derive(t), Parser<T,std::vector<A>>::shared_from_this());
 			return std::make_shared<Red<T,std::pair<A,std::vector<A>>,std::vector<A>>>(localDerive,Rep<T,A>::reductionOperation);
 		}
 
@@ -665,7 +677,72 @@ class Rep: public Parser<T,std::vector<A>> {
 		}
 };
 
+std::string ptr2string(void* pointer) {
+	std::stringstream sstream;
+	sstream << "Pointer" << pointer;
+	return sstream.str();
+}
+
+std::string printSingleRelation(void* parent, void* child) {
+	std::string retval;
+	retval += ptr2string(parent);
+	retval += "->";
+	retval += ptr2string(child);
+	retval += ";\n";
+	return retval;
+}
+
+std::string printNodeRelations(const Node& node) {
+	std::string retval;
+	for(auto i=node.children.cbegin();i!=node.children.cend();++i) {
+		retval += printSingleRelation(node.item,*i);
+	}
+	return retval;
+}
+
+std::string printGraphRelations(const Graph& graph) {
+	std::string retval;
+	for(auto i=graph.cbegin();i!=graph.cend();++i) {
+		retval += printNodeRelations(i->second);
+	}
+	return retval;
+}
+
+std::string formatNodeLabel(const Node& node) {
+	std::string retvalue;
+	retvalue += ptr2string(node.item);
+	retvalue += " [label="+node.label+"];\n";
+	return retvalue;
+}
+
+std::string printNodeLabels(const Graph& graph) {
+	std::string nodeLabels;
+	for(auto i=graph.cbegin();i!=graph.cend();++i) {
+		nodeLabels+= formatNodeLabel(i->second);
+	}
+	return nodeLabels;
+}
+
+std::string printGraph(const std::string &name, const Graph& graph) {
+	std::string retval;
+	retval = "digraph ";
+	retval += name;
+	retval += " {\n";
+	retval += printNodeLabels(graph);
+	retval += printGraphRelations(graph);
+	retval += "}\n";
+	return retval;
+}
+
+
+template<class T, class A>
+std::string getGraph(const std::string &name,std::shared_ptr<Parser<T,A>> input_parser) {
+	Graph info;
+	input_parser->treeRecurse(info);
+	return printGraph(name,info);
+}
 
 };
+
 
 #endif

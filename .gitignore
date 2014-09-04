@@ -30,3 +30,4 @@ parsertest
 # graphing stuff
 *.dot
 *.ps
+*.pdf
