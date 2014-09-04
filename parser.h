@@ -112,8 +112,8 @@ namespace yidpp {
 				void* localPtr = Parser<T,A>::shared_from_this().get();
 				if(!change.seen.count(localPtr)) {
 					change.seen.insert(localPtr);
-					initialized=true;
 					oneShotUpdate(change);
+					initialized=true;
 				}
 				allUpdate(change);
 			};
@@ -179,17 +179,18 @@ namespace yidpp {
 
 			virtual void oneShotUpdate(ChangeCell&) {};
 			virtual void allUpdate(ChangeCell&) {};
-		
-		private:
+			
 			//contains the current parse forest for it
 			std::set<A> parseNullLocal;
 			
-			//cache of derivative results
-			std::unordered_map<T,std::shared_ptr<Parser<T,A>>> cache;
-
 			//Nullable and Empty status of the class
 			bool isEmptyLocal = false;
 			bool isNullableLocal = false;
+
+		private:
+			
+			//cache of derivative results
+			std::unordered_map<T,std::shared_ptr<Parser<T,A>>> cache;
 			
 			//performs the fixed point update of the properties
 			void init() {
