@@ -49,10 +49,14 @@ int main(void) {
 	//parser for AB -> C
 	auto ReducedPair = std::make_shared<Red<char,std::pair<Tree*,Tree*>,Tree*>>(parsePair,[](std::pair<Tree*,Tree*> input) -> Tree* {return new Tree(input.first,input.second);});
 	
+	std::set<std::shared_ptr<Parser<char,Tree*>>> unionSet;
+	unionSet.insert(ReducedPair);
+	unionSet.insert(EmptyTree);
+	auto nowWithEmpty = std::make_shared<Alt<char,Tree*>>(unionSet);
 	//set L to be C U e
-	language->SetRecurse(std::make_shared<Alt<char,Tree*>>(ReducedPair,EmptyTree));
+	language->SetRecurse( nowWithEmpty );
 
-	std::shared_ptr<Parser<char,Tree*>> torecurse = language;
+	std::shared_ptr<Parser<char,Tree*>> torecurse = nowWithEmpty;
 	for(int i=0; i< 25; i++) {
 		torecurse = torecurse->derive('(');
 		std::stringstream s;	

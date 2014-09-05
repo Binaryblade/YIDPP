@@ -412,22 +412,23 @@ class EqT : public Parser<T,T> {
 template<class T,class A>
 class Alt : public Parser<T,A> {
 	private:
-		std::shared_ptr<Parser<T,A>> choice1;
-		std::shared_ptr<Parser<T,A>> choice2;
+		std::set<std::shared_ptr<Parser<T,A>>> unioned_parsers;
 
 	public:
-		Alt(std::shared_ptr<Parser<T,A>> choice1, std::shared_ptr<Parser<T,A>> choice2) : choice1(choice1), choice2(choice2) { }
+		Alt(std::set<std::shared_ptr<Parser<T,A>>> parsers) : unioned_parsers(parsers) { }
 
 		virtual std::vector<void*> getChildren() {
 			std::vector<void*> temp;
-			temp.push_back(choice1.get());
-			temp.push_back(choice2.get());
+			for(auto i=unioned_parsers.begin();i!=unioned_parsers.end(); ++i) {
+				temp.push_back(i->get());
+			}
 			return temp;
 		}
 
 		virtual void recurseChildren(Graph& valueSet) {
-			choice1->treeRecurse(valueSet);
-			choice2->treeRecurse(valueSet);
+			for(auto i=unioned_parsers.begin(); i!=unioned_parsers.end(); ++i) {
+				(*i)->treeRecurse(valueSet);
+			}
 		};
 
 		std::string getLabel() override {
@@ -437,36 +438,41 @@ class Alt : public Parser<T,A> {
 
 		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
 			//Quick optimization
-			//if either choice is the empty parser
-			//then the result is only the opposite derivative
-			if(choice1->isEmpty()) 
-				return choice2->derive(t);
-
-			if(choice2->isEmpty())
-				return choice1->derive(t);
-
-			//if both have stuff then apply alternation rule, derivative of alternation is
-			//alternation of derivative (it commutes)
-			return std::make_shared<Alt<T,A>>(choice1->derive(t), choice2->derive(t));
+			//if a choice is empty dont include it in the next union
+			std::set<std::shared_ptr<Parser<T,A>>> NewSet;
+			for(auto i=unioned_parsers.begin();i!=unioned_parsers.end();++i) {
+				if(!((*i)->isEmpty())) {
+					NewSet.insert((*i)->derive(t));
+				}
+			}
+			return std::make_shared<Alt<T,A>>(NewSet);
 		}
 
 	protected:
 		virtual void oneShotUpdate(ChangeCell &change) override {
-      choice1->updateChildBasedAttributes(change);
-      choice2->updateChildBasedAttributes(change);
+			for(auto i=unioned_parsers.begin();i!=unioned_parsers.end();++i) {
+				(*i)->updateChildBasedAttributes(change);
+			}
 		}
 
 		virtual void allUpdate(ChangeCell& change) override {
 			std::set<A> nullSet;
-			auto first = choice1->parseNull();
-			auto second = choice2->parseNull();
-			nullSet.insert(first.begin(),first.end());
-			nullSet.insert(second.begin(), second.end());
+			bool tempEmpty = true;
+			bool tempNullable = false;
+			for(auto i=unioned_parsers.begin();i!=unioned_parsers.end();++i) {
+				auto temp = (*i)->parseNull();
+				nullSet.insert(temp.begin(),temp.end());
+				tempEmpty = tempEmpty && (*i)->isEmpty();
+				tempNullable = tempNullable || (*i)->isNullable(); 
+			}
+			
 			change.orWith (Parser<T,A>::parseNullSet(nullSet));
-			change.orWith (Parser<T,A>::isEmptySet(choice1->isEmpty() && choice2->isEmpty()));
-			change.orWith (Parser<T,A>::isNullableSet(!Parser<T,A>::isEmpty() && (choice1->isNullable() || choice2->isNullable())));
+			change.orWith (Parser<T,A>::isEmptySet(tempEmpty));
+			change.orWith (Parser<T,A>::isNullableSet(!Parser<T,A>::isEmpty() && (tempNullable)));
 		}
+		
 };
+
 
 
 template<class T, class A, class B>
@@ -523,7 +529,10 @@ class Con : public Parser<T,std::pair<A,B>> {
 					}
 				} else {
 					//There is nothing we can do to optimize, so just take the full rule
-					return std::make_shared<Alt<T,std::pair<A,B>>>(primaryRet,std::make_shared<Con<T,A,B>>(nullability,rightDerive));
+					std::set<std::shared_ptr<Parser<T,std::pair<A,B>>>> retSet;
+					retSet.insert(primaryRet);
+					retSet.insert(std::make_shared<Con<T,A,B>>(nullability,rightDerive));
+					return std::make_shared<Alt<T,std::pair<A,B>>>(retSet);
 				}
 			} else {
 				//The second side is not nullable (there for the nullability operation nulls out the right half)
