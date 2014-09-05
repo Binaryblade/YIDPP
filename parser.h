@@ -1,5 +1,5 @@
-#ifndef PARSER2_H_
-#define PARSER2_H_
+#ifndef YIDPP_PARSER_H_
+#define YIDPP_PARSER_H_
 #include <vector>
 #include <memory>
 #include <utility>
@@ -109,7 +109,7 @@ namespace yidpp {
 		
 			//virtual method for fixed point computation
 			void updateChildBasedAttributes(ChangeCell& change) {
-				void* localPtr = Parser<T,A>::shared_from_this().get();
+				void* localPtr = this;
 				if(!change.seen.count(localPtr)) {
 					change.seen.insert(localPtr);
 					oneShotUpdate(change);
@@ -468,7 +468,7 @@ class Alt : public Parser<T,A> {
 			
 			change.orWith (Parser<T,A>::parseNullSet(nullSet));
 			change.orWith (Parser<T,A>::isEmptySet(tempEmpty));
-			change.orWith (Parser<T,A>::isNullableSet(!Parser<T,A>::isEmpty() && (tempNullable)));
+			change.orWith (Parser<T,A>::isNullableSet(!this->isEmpty() && tempNullable));
 		}
 		
 };

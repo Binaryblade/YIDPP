@@ -55,17 +55,8 @@ int main(void) {
 	auto nowWithEmpty = std::make_shared<Alt<char,Tree*>>(unionSet);
 	//set L to be C U e
 	language->SetRecurse( nowWithEmpty );
-
-	std::shared_ptr<Parser<char,Tree*>> torecurse = nowWithEmpty;
-	for(int i=0; i< 25; i++) {
-		torecurse = torecurse->derive('(');
-		std::stringstream s;	
-		s << "numderives_"<<i;
-		std::cout << getGraph<char,Tree*>(s.str(),torecurse) << std::endl;
-	}
-	
-
-		torecurse = torecurse->derive(')');
-		std::cout << getGraph<char,Tree*>("FirstClosure",torecurse) << std::endl;
+	std::cout << getGraph<char,Tree*>("first",language) << std::endl;
+	auto down = nowWithEmpty->derive('(');
+	std::cout << getGraph<char,Tree*>("second",down) << std::endl;
 	return 0;
 }
