@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <iostream>
 #include <sstream>
+#include <iterator>
 
 namespace yidpp {
 		template<class T,class A>
@@ -38,7 +39,7 @@ namespace yidpp {
 	class Parser : public std::enable_shared_from_this<Parser<T,A>> {
 		public:
 			Parser() : initialized(false) {};
-		
+
 			//retreive the parse forest because the stream has terminated
 			std::set<A> parseNull() {
 				if(isEmpty()) {
@@ -116,7 +117,7 @@ namespace yidpp {
 					initialized=true;
 				}
 				allUpdate(change);
-			};
+			}
 
 			virtual void treeRecurse(Graph& valueSet) {
 				if(!valueSet.count(this)) {
@@ -283,7 +284,7 @@ template<class T,class A>
 	protected:
 
 		std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
-			return recursive->derive(t);
+			return std::make_shared<DFut<T,A>>(recursive,t);
 		}
 
 		virtual void oneShotUpdate(ChangeCell &change) override {
@@ -442,9 +443,16 @@ class Alt : public Parser<T,A> {
 			std::set<std::shared_ptr<Parser<T,A>>> NewSet;
 			for(auto i=unioned_parsers.begin();i!=unioned_parsers.end();++i) {
 				if(!((*i)->isEmpty())) {
-					NewSet.insert((*i)->derive(t));
+						NewSet.insert((*i)->derive(t));
 				}
 			}
+
+			//If it is a singlton set then don't bother with the union wrapper
+			//just return the parser
+			if(NewSet.size() == 1) {
+				return *NewSet.begin();
+			}
+			
 			return std::make_shared<Alt<T,A>>(NewSet);
 		}
 
@@ -589,7 +597,7 @@ class Red : public Parser<T,B> {
 	protected:
 		virtual std::shared_ptr<Parser<T,B>> internalDerive(T t) override {
 			
-			auto temp = std::make_shared<DFut<T,A>>(localParser,t);
+			auto temp = localParser->derive(t);
 			//If the derivitive of the internal parser which you are reducing is the Null Parser
 			//Then the result is simply the Null Parser of the correct type
 			if(temp->isEmpty()) {
