@@ -28,54 +28,63 @@ int main(void) {
 	//parser for )
 	auto CloseBrace = std::make_shared<EqT<char>>(')');
 
+	auto ClosedPair = std::make_shared<Con<char,char,char>>();
+	ClosedPair->setLeft(OpenBrace);
+	ClosedPair->setRight(CloseBrace);
+
 	//parser for A = () -> Tree*
-	auto ClosedPair = std::make_shared<Red<char,std::pair<char,char>,Tree*>>(std::make_shared<Con<char,char,char>>(OpenBrace, CloseBrace),
+	auto RedClosedPair = std::make_shared<Red<char,std::pair<char,char>,Tree*>>(
 		[](std::pair<char,char> in) -> Tree* {return new Tree();}
 		);
+	RedClosedPair->setParser(ClosedPair);
 	
-	//parser for L, needs its child to be set later
-	auto language = std::make_shared<RecursiveParser<char,Tree*>>();
+	//Parser for union
+	// Fl = A U B U C
+	auto FullLanguage = std::make_shared<Alt<char,Tree*>>();
 	
 	//parser for Lp = (L -> Tree*
-	auto LeftPair = std::make_shared<Red<char,std::pair<char,Tree*>,Tree*>>(std::make_shared<Con<char,char,Tree*>>(OpenBrace,language),
+	auto LeftPair = std::make_shared<Con<char,char,Tree*>>();
+	LeftPair->setLeft(OpenBrace);
+	LeftPair->setRight(FullLanguage);
+
+	auto RedLeftPair = std::make_shared<Red<char,std::pair<char,Tree*>,Tree*>>(
 		[](std::pair<char,Tree*> in) -> Tree* { return new Tree(in.second,nullptr);}
 	);
+	RedLeftPair->setParser(LeftPair);
 
 	//parser for B = Lp) -> Tree*
-	auto RightPair = std::make_shared<Red<char,std::pair<Tree*,char>,Tree*>>(std::make_shared<Con<char,Tree*,char>>(LeftPair,CloseBrace),
+	auto RightPair = std::make_shared<Con<char,Tree*,char>>();
+	RightPair->setLeft(RedLeftPair);
+	RightPair->setRight(CloseBrace);
+
+	auto RedRightPair = std::make_shared<Red<char,std::pair<Tree*,char>,Tree*>>(
 	 [](std::pair<Tree*,char> in) -> Tree* { return in.first; }
 	 );
+	 RedRightPair->setParser(RightPair);
 
 	//parser for pair of languages
 	// C = LL -> Tree*
-	auto CompletePair = std::make_shared<Red<char,std::pair<Tree*,Tree*>,Tree*>>(std::make_shared<Con<char,Tree*,Tree*>>(language,language),
+	auto CompletePair = std::make_shared<Con<char,Tree*,Tree*>>();
+	CompletePair->setLeft(FullLanguage);
+	CompletePair->setRight(FullLanguage);
+	auto RedCompletePair = std::make_shared<Red<char,std::pair<Tree*,Tree*>,Tree*>>(
 		[](std::pair<Tree*,Tree*> in) -> Tree* { return new Tree(in.first,in.second);} 
 	);
+	RedCompletePair->setParser(CompletePair);
 	
+	FullLanguage->addParser(RedRightPair);
+	FullLanguage->addParser(RedCompletePair);
+	FullLanguage->addParser(RedClosedPair);
 
-	//Parser for union
-	// Fl = A U B U C
-	std::set<std::shared_ptr<Parser<char,Tree*>>> unionSet;
-	unionSet.insert(ClosedPair);
-	unionSet.insert(RightPair);
-	unionSet.insert(CompletePair);
-	auto FullLanguage = std::make_shared<Alt<char,Tree*>>(unionSet);
-
-	//set L to be Fl so that recursion can happen 
-	language->SetRecurse( FullLanguage );
 
 
 	std::shared_ptr<Parser<char,Tree*>> recurse = FullLanguage;
-	for(size_t i=0;i<25;++i) {
+	std::string parseString = "()()()";
+	for(auto i=parseString.begin();i!=parseString.end();++i) {
 		std::stringstream sstream;
-		sstream << i;
+		sstream << (i-parseString.begin());
 		std::cout << getGraph<char,Tree*>(sstream.str(),recurse) << std::endl;
-		recurse = recurse->derive('(');
+		recurse = recurse->derive(*i);
 	}
-
-//	recurse = recurse->derive(')');
-//	std::cout << getGraph<char,Tree*>("second",recurse) << std::endl;
-//	recurse = recurse->derive(')');
-//	std::cout << getGraph<char,Tree*>("third",recurse) << std::endl;
 	return 0;
 }

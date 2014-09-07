@@ -38,7 +38,10 @@ namespace yidpp {
 	template<class T, class A>
 	class Parser : public std::enable_shared_from_this<Parser<T,A>> {
 		public:
-			Parser() : initialized(false) {};
+		typedef std::unordered_map<T,std::shared_ptr<Parser<T,A>>> ParserCache;
+		
+		Parser() : initialized(false) {
+		};
 
 			//retreive the parse forest because the stream has terminated
 			std::set<A> parseNull() {
@@ -73,9 +76,7 @@ namespace yidpp {
 				if (cache.count(t)) {
 					return cache.find(t)->second; //if seen before return previous result
 				} else {
-						std::shared_ptr<Parser<T,A>> temp_derive = internalDerive(t);  //new get the internal derivative
-						cache.insert(std::make_pair(t,temp_derive));
-						return temp_derive;
+						return internalDerive(t,cache);  //new get the internal derivative
 				}
 			}
 
@@ -113,8 +114,8 @@ namespace yidpp {
 				void* localPtr = this;
 				if(!change.seen.count(localPtr)) {
 					change.seen.insert(localPtr);
-					oneShotUpdate(change);
 					initialized=true;
+					oneShotUpdate(change);
 				}
 				allUpdate(change);
 			}
@@ -145,7 +146,7 @@ namespace yidpp {
 			bool initialized;
 			
 			//virtual method for popping the derivative
-			virtual std::shared_ptr<Parser<T,A>> internalDerive (T t) = 0;
+			virtual std::shared_ptr<Parser<T,A>> internalDerive (T t, typename Parser<T,A>::ParserCache&) = 0;
 
 			//setter for parse forest and checks if changed
 			bool parseNullSet(std::set<A> set) {
@@ -191,7 +192,7 @@ namespace yidpp {
 		private:
 			
 			//cache of derivative results
-			std::unordered_map<T,std::shared_ptr<Parser<T,A>>> cache;
+			ParserCache cache;
 			
 			//performs the fixed point update of the properties
 			void init() {
@@ -204,99 +205,6 @@ namespace yidpp {
 				} while(change.change);
 			}
 };
-
-
-template<class T, class A>
-class DFut : public Parser<T,A> {
-		std::shared_ptr<Parser<T,A>> to_derive;
-		T terminal;
-
-	public:
-		DFut(std::shared_ptr<Parser<T,A>> input, T terminal) : to_derive(input) , terminal(terminal) {};
-	
-		virtual std::set<std::pair<A,std::vector<T>>> parse(const std::vector<T>& input) override {
-			return to_derive->derive(terminal)->parse(input);
-		}
-
-
-
-			virtual std::vector<void*> getChildren() {
-				std::vector<void*> temp;
-				temp.push_back(to_derive.get());
-				return temp;
-			}
-
-			virtual void recurseChildren(Graph& valueSet) {
-				to_derive->treeRecurse(valueSet);
-			};
-
-			virtual std::string getLabel() {
-				return "DerivativeFuture";
-			}
-
-	protected:
-
-		std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
-			return to_derive->derive(terminal)->derive(t);
-		}
-
-		virtual void oneShotUpdate(ChangeCell &change) override {
-      to_derive->derive(terminal)->updateChildBasedAttributes(change);
-		}
-
-		virtual void allUpdate(ChangeCell& change) override {
-			change.orWith (Parser<T,A>::parseNullSet(to_derive->derive(terminal)->parseNull()));
-			change.orWith (Parser<T,A>::isEmptySet(to_derive->derive(terminal)->isEmpty()));
-			change.orWith (Parser<T,A>::isNullableSet(to_derive->derive(terminal)->isNullable()));
-		}
-
-};
-
-
-template<class T,class A>
-	class RecursiveParser : public Parser<T,A> {
-			std::shared_ptr<Parser<T,A>> recursive;
-
-	public:
-		RecursiveParser(std::shared_ptr<Parser<T,A>> input) : recursive(input) {};
-		RecursiveParser() {};
-
-		void SetRecurse(std::shared_ptr<Parser<T,A>> input) { recursive = input; }
-	
-		virtual std::set<std::pair<A,std::vector<T>>> parse(const std::vector<T>& input) override {
-			return recursive->parse(input);
-		}
-			
-			virtual std::vector<void*> getChildren() {
-				std::vector<void*> temp;
-				temp.push_back(recursive.get());
-				return temp;
-			}
-
-			virtual void recurseChildren(Graph& valueSet) {
-				recursive->treeRecurse(valueSet);
-			};
-
-			virtual std::string getLabel() {
-				return "RecursiveParser";
-			}
-
-	protected:
-
-		std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
-			return std::make_shared<DFut<T,A>>(recursive,t);
-		}
-
-		virtual void oneShotUpdate(ChangeCell &change) override {
-      recursive->updateChildBasedAttributes(change);
-		}
-
-		virtual void allUpdate(ChangeCell& change) override {
-			change.orWith (Parser<T,A>::parseNullSet(recursive->parseNull()));
-			change.orWith (Parser<T,A>::isEmptySet(recursive->isEmpty()));
-			change.orWith (Parser<T,A>::isNullableSet(recursive->isNullable()));
-		}
-	};
 
 //class for the empty set
 template<class T, class A>
@@ -319,7 +227,8 @@ class Emp : public Parser<T,A> {
 		}
   protected:
 		
-		std::shared_ptr<Parser<T,A>> internalDerive (T t) override {
+		std::shared_ptr<Parser<T,A>> internalDerive (T t, typename Parser<T,A>::ParserCache& cache) override {
+			cache.insert(std::make_pair(t,Parser<T,A>::shared_from_this()));
 			return Parser<T,A>::shared_from_this();
 		}//derivative of the empty set is the empty set
 };
@@ -352,8 +261,10 @@ class Eps : public Parser<T,A> {
 
 		//if you take the derivative of it you get the null set
 		//which is no parser at all
-		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
-			return std::make_shared<Emp<T,A>>();
+		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t, typename Parser<T,A>::ParserCache& cache) override {
+			auto retval = std::make_shared<Emp<T,A>>();
+			cache.insert(std::make_pair(t,retval));
+			return retval;
 		}
 
 	public:
@@ -394,17 +305,21 @@ class EqT : public Parser<T,T> {
 		}
   protected:
 
-		virtual std::shared_ptr<Parser<T,T>> internalDerive(T t_) override {
+		virtual std::shared_ptr<Parser<T,T>> internalDerive(T t_, typename Parser<T,T>::ParserCache& cache) override {
 			if(t == t_) {
 				//derivative of the single terminal is the null reduction parser
 				//formed with t as the construction option
 				std::set<T> generator;
 				generator.insert(t);
-				return std::make_shared<Eps<T,T>>(generator);
+				auto retval = std::make_shared<Eps<T,T>>(generator); 
+				cache.insert(std::make_pair(t_,retval));
+				return retval;
 			} else {
 				//if not equal cannot be part of language
 				//therefore null set or empty parser
-				return std::make_shared<Emp<T,T>>();
+				auto retval = std::make_shared<Emp<T,T>>();
+				cache.insert(std::make_pair(t_,retval));
+				return retval;
 			}
 		}
 };
@@ -416,7 +331,9 @@ class Alt : public Parser<T,A> {
 		std::set<std::shared_ptr<Parser<T,A>>> unioned_parsers;
 
 	public:
-		Alt(std::set<std::shared_ptr<Parser<T,A>>> parsers) : unioned_parsers(parsers) { }
+		void addParser(std::shared_ptr<Parser<T,A>> parser) {
+			unioned_parsers.insert(parser);
+		}
 
 		virtual std::vector<void*> getChildren() {
 			std::vector<void*> temp;
@@ -437,23 +354,32 @@ class Alt : public Parser<T,A> {
 		}
 	protected:
 
-		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t) override {
+		virtual std::shared_ptr<Parser<T,A>> internalDerive(T t,typename Parser<T,A>::ParserCache& cache) override {
+
 			//Quick optimization
 			//if a choice is empty dont include it in the next union
-			std::set<std::shared_ptr<Parser<T,A>>> NewSet;
+			std::set<std::shared_ptr<Parser<T,A>>> nonEmptySet;
 			for(auto i=unioned_parsers.begin();i!=unioned_parsers.end();++i) {
 				if(!((*i)->isEmpty())) {
-						NewSet.insert((*i)->derive(t));
+					nonEmptySet.insert(*i);
 				}
 			}
-
-			//If it is a singlton set then don't bother with the union wrapper
-			//just return the parser
-			if(NewSet.size() == 1) {
-				return *NewSet.begin();
-			}
 			
-			return std::make_shared<Alt<T,A>>(NewSet);
+			if(nonEmptySet.size() == 0) {
+				auto retval = std::make_shared<Emp<T,A>>();
+				cache.insert(std::make_pair(t,retval));
+				return retval;
+			}
+
+			auto retval = std::make_shared<Alt<T,A>>();
+			cache.insert(std::make_pair(t,retval));
+			
+			for(auto i=unioned_parsers.begin();i!=unioned_parsers.end();++i) {
+				retval->addParser((*i)->derive(t));
+			}
+
+#warning insert singleton optimization here
+			return retval;
 		}
 
 	protected:
@@ -489,7 +415,9 @@ class Con : public Parser<T,std::pair<A,B>> {
 		std::shared_ptr<Parser<T,A>> first;
 		std::shared_ptr<Parser<T,B>> second;
 	public:
-		Con(std::shared_ptr<Parser<T,A>> first, std::shared_ptr<Parser<T,B>> second) : first(first), second(second) {};
+		void setLeft(std::shared_ptr<Parser<T,A>> in) {first = in;};
+		void setRight(std::shared_ptr<Parser<T,B>> in) {second = in;};
+
 
 		virtual std::vector<void*> getChildren() {
 			std::vector<void*> temp;
@@ -507,46 +435,31 @@ class Con : public Parser<T,std::pair<A,B>> {
 			return "Concatenation";
 		}
 	protected:
-		virtual std::shared_ptr<Parser<T,std::pair<A,B>>> internalDerive(T t) override {
-
-			//Concatenation has some funny rules and is also a big target of compaction
-			//so apply it here
-			std::shared_ptr<Parser<T,A>> leftDerive = first->derive(t);
-			std::shared_ptr<Parser<T,std::pair<A,B>>> primaryRet = std::make_shared<Emp<T,std::pair<A,B>>>();
-			if(!leftDerive->isEmpty()) { 
-				//only if the first expressions derivative is non-empty do we care about the first
-				//concatenation in the union
-				primaryRet = std::make_shared<Con<T,A,B>>(leftDerive, second);
+		virtual std::shared_ptr<Parser<T,std::pair<A,B>>> internalDerive(T t,typename Parser<T,std::pair<A,B>>::ParserCache& cache) override {
+			if(first->isEmpty() || second->isEmpty()) {
+				auto retval = std::make_shared<Emp<T,std::pair<A,B>>>();
+				cache.insert(std::make_pair(t,retval));
+				return retval;
 			}
+
+			auto retUnion = std::make_shared<Alt<T,std::pair<A,B>>>();
+			cache.insert(std::make_pair(t,retUnion));
+
+			auto leftDerive = first->derive(t);
+			auto LeftCat = std::make_shared<Con<T,A,B>>();
+			LeftCat->setLeft(leftDerive);
+			LeftCat->setRight(second);
+			retUnion->addParser(LeftCat);
 
 			if(first->isNullable()) {
-				//If the first language is nullable, then the second term in the rule appears
-				//and we need to generate the null reduction (empty string parser) for the first
-				//term
-				std::shared_ptr<Parser<T,A>> nullability = std::make_shared<Eps<T,A>>(first->parseNull());
-				//we also want the second derivate to concat with the reduction parser
-				std::shared_ptr<Parser<T,B>> rightDerive = second->derive(t);
-				if(leftDerive->isEmpty()) {
-					//if the left is empty then only worry about nullability portion of the concat
-					if(rightDerive->isEmpty()) {
-						//if both right and left are empty, then return the Null parser because its screwed anyway
-						return primaryRet;
-					} else {
-						//just the right side of the alternation rule 
-						return std::make_shared<Con<T,A,B>>(nullability,rightDerive);
-					}
-				} else {
-					//There is nothing we can do to optimize, so just take the full rule
-					std::set<std::shared_ptr<Parser<T,std::pair<A,B>>>> retSet;
-					retSet.insert(primaryRet);
-					retSet.insert(std::make_shared<Con<T,A,B>>(nullability,rightDerive));
-					return std::make_shared<Alt<T,std::pair<A,B>>>(retSet);
-				}
-			} else {
-				//The second side is not nullable (there for the nullability operation nulls out the right half)
-				//so just take the first term of the rule
-				return primaryRet;
+				auto nullability = std::make_shared<Eps<T,A>>(first->parseNull());
+				auto rightCat = std::make_shared<Con<T,A,B>>();
+				rightCat->setLeft(nullability);
+				rightCat->setRight(second->derive(t));
+				retUnion->addParser(rightCat);
 			}
+
+			return retUnion;
 		}
 
 	protected:
@@ -578,7 +491,8 @@ class Red : public Parser<T,B> {
 		std::shared_ptr<Parser<T,A>> localParser;
 		std::function<B(A)> reductionFunction;
 	public:
-		Red(std::shared_ptr<Parser<T,A>> parser, std::function<B(A)> redfunc): localParser(parser), reductionFunction(redfunc) {};	
+		Red(std::function<B(A)> redfunc): reductionFunction(redfunc) {};
+		void setParser(std::shared_ptr<Parser<T,A>> input) { localParser = input;};
 		
 		virtual std::vector<void*> getChildren() {
 			std::vector<void*> temp;
@@ -595,17 +509,21 @@ class Red : public Parser<T,B> {
 		}
 	
 	protected:
-		virtual std::shared_ptr<Parser<T,B>> internalDerive(T t) override {
+		virtual std::shared_ptr<Parser<T,B>> internalDerive(T t, typename Parser<T,B>::ParserCache& cache) override {
 			
-			auto temp = localParser->derive(t);
-			//If the derivitive of the internal parser which you are reducing is the Null Parser
+			//If internal parser which you are reducing is the Null Parser
 			//Then the result is simply the Null Parser of the correct type
-			if(temp->isEmpty()) {
-				return std::make_shared<Emp<T,B>>();
+			if(localParser->isEmpty()) {
+				auto retval = std::make_shared<Emp<T,B>>();
+				cache.insert(std::make_pair(t,retval));
+				return retval;
 			}
 			
 			//derivative of the reduction is the reduction of the derivative
-			return std::make_shared<Red<T,A,B>>(temp,reductionFunction);
+			auto retval = std::make_shared<Red<T,A,B>>(reductionFunction);
+			cache.insert(std::make_pair(t,retval));
+			retval->setParser(localParser->derive(t));
+			return retval;
 		}
 
 	public:
@@ -651,13 +569,15 @@ class Rep: public Parser<T,std::vector<A>> {
  	private:
 		std::shared_ptr<Parser<T,A>> internal;
 	public:
-		Rep(std::shared_ptr<Parser<T,A>> p) : internal(p) {
+		Rep() {
 			Parser<T,std::vector<A>>::isEmptySet(false);
 			Parser<T,std::vector<A>>::isNullableSet(true);
 			std::set<std::vector<A>> retset;
 			retset.insert(std::vector<A>());
 			Parser<T,std::vector<A>>::parseNullSet(retset);
 		}
+
+		void setParser(std::shared_ptr<Parser<T,A>> input) { internal = input;};
 		
 		virtual std::vector<void*> getChildren() {
 			std::vector<void*> temp;
@@ -682,9 +602,14 @@ class Rep: public Parser<T,std::vector<A>> {
 					return retval;
 	}
 	
-	virtual std::shared_ptr<Parser<T,std::vector<A>>> internalDerive(T t) override {
-			auto localDerive = std::make_shared<Con<T,A,std::vector<A>>>(internal->derive(t), Parser<T,std::vector<A>>::shared_from_this());
-			return std::make_shared<Red<T,std::pair<A,std::vector<A>>,std::vector<A>>>(localDerive,Rep<T,A>::reductionOperation);
+	virtual std::shared_ptr<Parser<T,std::vector<A>>> internalDerive(T t, typename Parser<T,std::vector<A>>::ParserCache& cache) override {
+			auto retval = std::make_shared<Red<T,std::pair<A,std::vector<A>>,std::vector<A>>>(Rep<T,A>::reductionOperation);
+			cache.insert(std::make_pair(t,retval));
+			auto catenation = std::make_shared<Con<T,A,std::vector<A>>>();
+			catenation->setLeft(internal->derive(t));
+			catenation->setRight(Parser<T,std::vector<A>>::shared_from_this());
+			retval->setParser(catenation);
+			return retval;
 		}
 
 	protected:
