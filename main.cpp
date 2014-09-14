@@ -86,5 +86,9 @@ int main(void) {
 		std::cout << getGraph<char,Tree*>(sstream.str(),recurse) << std::endl;
 		recurse = recurse->derive(*i);
 	}
+
+	std::cerr << "Derivatives Complete: parsing null" << std::endl;
+	std::set<Tree*> test = recurse->parseNull();
+	std::cerr << test.size() << std::endl;
 	return 0;
 }

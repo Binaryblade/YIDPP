@@ -17,12 +17,12 @@ namespace yidpp {
 		//Data object for fixed point computation
 		class ChangeCell {
 			public:
-				ChangeCell() : change(false) {};
-				bool change;
+				ChangeCell() : changed(false) {};
+				bool changed;
 				std::set<void*> seen;
 				bool orWith(bool change) {
-					this->change = this->change || change;
-					return this->change;
+					changed = changed || change;
+					return changed;
 				}
 		};
 
@@ -114,8 +114,8 @@ namespace yidpp {
 				void* localPtr = this;
 				if(!change.seen.count(localPtr)) {
 					change.seen.insert(localPtr);
-					initialized=true;
 					oneShotUpdate(change);
+					initialized=true;
 				}
 				allUpdate(change);
 			}
@@ -198,11 +198,12 @@ namespace yidpp {
 			void init() {
 				if(initialized)
 					return;
+				initialized = true;
 				ChangeCell change;
 				do {
 					change = ChangeCell();
 					updateChildBasedAttributes(change);
-				} while(change.change);
+				} while(change.changed);
 			}
 };
 
@@ -377,8 +378,7 @@ class Alt : public Parser<T,A> {
 			for(auto i=unioned_parsers.begin();i!=unioned_parsers.end();++i) {
 				retval->addParser((*i)->derive(t));
 			}
-
-#warning insert singleton optimization here
+			
 			return retval;
 		}
 
@@ -552,14 +552,15 @@ class Red : public Parser<T,B> {
 		}
 
 		virtual void allUpdate(ChangeCell& change) override {
+			change.orWith(Parser<T,B>::isEmptySet(localParser->isEmpty()));
+			change.orWith(Parser<T,B>::isNullableSet(localParser->isNullable()));
+			
 			auto localParseNull = localParser->parseNull();
 			std::set<B> changedParseNull;
 			for(auto i=localParseNull.begin();i!=localParseNull.end();++i) {
 				changedParseNull.insert(reductionFunction(*i));
 			}
 			change.orWith(Parser<T,B>::parseNullSet(changedParseNull));
-			change.orWith(Parser<T,B>::isEmptySet(localParser->isEmpty()));
-			change.orWith(Parser<T,B>::isNullableSet(localParser->isNullable()));
 		}
 };
 
@@ -615,7 +616,6 @@ class Rep: public Parser<T,std::vector<A>> {
 	protected:
 		virtual void oneShotUpdate(ChangeCell& change) override {
 				internal->updateChildBasedAttributes(change);
-				Parser<T,std::vector<A>>::initialized=true;
 		}
 };
 
@@ -625,11 +625,11 @@ std::string ptr2string(void* pointer) {
 	return sstream.str();
 }
 
-std::string printSingleRelation(void* parent, void* child) {
+std::string printSingleRelation(const std::string &parent,const std::string& child) {
 	std::string retval;
-	retval += ptr2string(parent);
+	retval += parent;
 	retval += "->";
-	retval += ptr2string(child);
+	retval += child;
 	retval += ";\n";
 	return retval;
 }
@@ -637,7 +637,7 @@ std::string printSingleRelation(void* parent, void* child) {
 std::string printNodeRelations(const Node& node) {
 	std::string retval;
 	for(auto i=node.children.cbegin();i!=node.children.cend();++i) {
-		retval += printSingleRelation(node.item,*i);
+		retval += printSingleRelation(ptr2string(node.item),ptr2string(*i));
 	}
 	return retval;
 }
@@ -665,12 +665,14 @@ std::string printNodeLabels(const Graph& graph) {
 	return nodeLabels;
 }
 
-std::string printGraph(const std::string &name, const Graph& graph) {
+std::string printGraph(const std::string &name, const Graph& graph, void* head) {
 	std::string retval;
 	retval = "digraph ";
 	retval += name;
 	retval += " {\n";
+	retval += "HEAD\n";
 	retval += printNodeLabels(graph);
+	retval += printSingleRelation("HEAD",ptr2string(head));
 	retval += printGraphRelations(graph);
 	retval += "}\n";
 	return retval;
@@ -681,7 +683,7 @@ template<class T, class A>
 std::string getGraph(const std::string &name,std::shared_ptr<Parser<T,A>> input_parser) {
 	Graph info;
 	input_parser->treeRecurse(info);
-	return printGraph(name,info);
+	return printGraph(name,info,input_parser.get());
 }
 
 };
